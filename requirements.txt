@@ -1,0 +1,12 @@
+python-magic-bin
+langchain
+langchain-community
+bs4
+unstructured[all-docs]
+pytesseract
+pillow
+sentence-transformers
+langchain-milvus
+openai
+langchain-nvidia-ai-endpoints
+ragas
