@@ -7,10 +7,10 @@ from langchain_milvus import Milvus
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage
+from langchain_community.retrievers import BM25Retriever
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 from pymilvus import connections, utility
-
 
 #step 1 - identify file type
 def filetype(file_path):
@@ -89,7 +89,9 @@ def process_input(file_path):
         docs = extract_content(file_path)
 
         # 2. split documents
-        splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100, add_start_index=True)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=600, 
+                                                  chunk_overlap=100, 
+                                                  add_start_index=True)
         docs_split = splitter.split_documents(docs)
 
         #3. clean metadata
@@ -97,7 +99,13 @@ def process_input(file_path):
             doc.metadata = {
                 "source": doc.metadata.get("source", file_path)}
 
-        # 3. Store in Milvus
+        #4. BM25 indexing
+        global bm25_docs, bm25_retriever
+        bm25_docs.extend(docs_split)
+        bm25_retriever = BM25Retriever.from_documents(bm25_docs)
+        bm25_retriever.k = 3
+
+        #5. Store in Milvus
         vectorstore.add_documents(documents=docs_split)
 
         return len(docs_split)
@@ -118,12 +126,20 @@ llm = ChatNVIDIA(model="meta/llama-3.2-3b-instruct", temperature=0.1, max_tokens
 
 def retrieve_context(query: str):
     try:
-        retrieved_docs = vectorstore.similarity_search(query, k=6)
-        if not retrieved_docs:
+        vector_docs = vectorstore.similarity_search(query, k=6)
+
+        bm25_docs = []
+        if bm25_retriever:
+            bm25_docs = bm25_retriever.get_relevant_documents(query)
+
+        all_docs = {doc.page_content: doc for doc in vector_docs + bm25_docs}
+        final_docs = list(all_docs.values())[:6]
+
+        if not final_docs:
             return "No context found for this query.", []
 
-        context_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
-        sources = [doc.metadata for doc in retrieved_docs]
+        context_text = "\n\n".join([doc.page_content for doc in final_docs])
+        sources = [doc.metadata for doc in vector_docs]
 
         answer_response = llm.generate([
             [HumanMessage(content=f"Answer the question using ONLY the context below:\n\n{context_text}\n\nQuestion: {query}")]
@@ -140,11 +156,11 @@ def retrieve_context(query: str):
 
 # Example usage'
 
-file_path = "example.pdf"
+file_path = "Kiruthika_Resume.pdff"
 chunks_added = process_input(file_path)
 print(f"Loaded {chunks_added} chunks into vector store")
 
-query = "Describe your professional experience"
+query = "summarize kiruthika's projects and tell if she is suitable for data science job?"
 answer, sources = retrieve_context(query)
 print("Answer:", answer)
 print("Sources:", sources)

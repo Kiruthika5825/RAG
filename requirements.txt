@@ -10,3 +10,4 @@ langchain-milvus
 openai
 langchain-nvidia-ai-endpoints
 ragas
+rank_bm25
